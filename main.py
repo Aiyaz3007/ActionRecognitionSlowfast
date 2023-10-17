@@ -192,9 +192,11 @@ def main(config):
             resp = send_image(file_name=f"video_{cap.idx}.mp4")
 
             if resp == 200:
-                print("send successfully")
+                # print("send successfully")
+                pass
             else:
-                print("send unsuccessfully!")
+                # print("send unsuccessfully!")
+                pass
 
             
 
