@@ -2,3 +2,7 @@
 env
 yolo_slowfast.py
 deep_sort/deep_sort/sort/__pycache__/
+tmp_df
+tmp
+selfutils/__pycache__/
+models

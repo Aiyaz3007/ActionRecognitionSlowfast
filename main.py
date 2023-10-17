@@ -12,10 +12,14 @@ from pytorchvideo.data.ava import AvaLabeledVideoFramePaths
 from pytorchvideo.models.hub import slowfast_r50_detection
 from deep_sort.deep_sort import DeepSort
 
+from selfutils import save_video,send_image
+import threading
+from os.path import join
 
 class MyVideoCapture:
     
     def __init__(self, source):
+        self.filename = source
         self.cap = cv2.VideoCapture(source)
         self.idx = -1
         self.end = False
@@ -44,7 +48,31 @@ class MyVideoCapture:
     
     def release(self):
         self.cap.release()
-        
+
+    def get_frames_around_index(self, index, frame_buffer):
+        frames = []
+        cap = cv2.VideoCapture(self.filename)
+
+        if not cap.isOpened():
+            print("Error: Unable to open video file.")
+            return []
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        for i in range(index - frame_buffer, index + frame_buffer + 1):
+            if i < 0 or i >= total_frames:
+                # Skip frames that are out of bounds
+                continue
+
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            ret, frame = cap.read()
+            if ret:
+                frames.append(frame)
+            else:
+                print(f"Error reading frame {i}")
+        cap.release()
+        return frames
+            
 def tensor_to_numpy(tensor):
     img = tensor.cpu().numpy().transpose((1, 2, 0))
     return img
@@ -117,17 +145,17 @@ def save_yolopreds_tovideo(yolo_preds, id_to_ava_labels, color_map, output_video
 def main(config):
     device = config.device
     imsize = config.imsize
-    model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolo_model.pt', force_reload=True) 
-    # model = torch.hub.load('ultralytics/yolov5', 'yolov5l6').to(device)
+    model = torch.hub.load('ultralytics/yolov5', 'custom', path='models/yolo_model.pt', force_reload=True) 
     model.conf = config.conf
     model.iou = config.iou
     model.max_det = 100
+    flag = True
     if config.classes:
         model.classes = config.classes
     
     video_model = slowfast_r50_detection(True).eval().to(device)
     
-    deepsort_tracker = DeepSort("deep_sort/deep_sort/deep/checkpoint/ckpt.t7")
+    deepsort_tracker = DeepSort("models/ckpt.t7")
     ava_labelnames,_ = AvaLabeledVideoFramePaths.read_label_map("selfutils/temp.pbtxt")
     coco_color_map = [[random.randint(0, 255) for _ in range(3)] for _ in range(80)]
 
@@ -144,6 +172,7 @@ def main(config):
     while not cap.end:
         ret, img = cap.read()
         if not ret:
+            print("ret false")
             continue
         yolo_preds=model([img], size=imsize)
         yolo_preds.files=["img.jpg"]
@@ -156,7 +185,20 @@ def main(config):
             deepsort_outputs.append(temp.astype(np.float32))
             
         yolo_preds.pred=deepsort_outputs
-        
+        def process():
+            frames = cap.get_frames_around_index(index=cap.idx,frame_buffer=25)
+            file_name = f"video_{cap.idx}.mp4"
+            save_video(frame_list=frames,dst=os.path.join("tmp",file_name))
+            resp = send_video(file_name=file_name)
+            # resp = send_image(file_name=f"video_{cap.idx}.mp4")
+
+            if resp == 200:
+                print("send successfully")
+            else:
+                print("send unsuccessfully!")
+
+            
+
         if len(cap.stack) == 50:
             print(f"processing {cap.idx // 50}th second clips")
             clip = cap.get_video_clip()
@@ -179,18 +221,19 @@ def main(config):
                   top_5_values = [data[i] for i in sorted_indices[:5]]
                   top_5_indices = sorted_indices[:5]
 
-                  # for x,y in zip(top_5_indices,top_5_values):
-                  #   label = ava_labelnames[x+1]
-                  #   print(label,y)
                   slowfast_det.append(top_5_indices)
-
+               
                 for tid,labels in zip(yolo_preds.pred[0][:,5].tolist(), slowfast_det):
-                    if 63 in labels:
+                    if 63 in labels and flag:
                       label_id = 63
                       print("Fight Detected!")
+                      my_thread = threading.Thread(target=process)
+                      my_thread.start()
+                      flag = False
                     else:
                       label_id = labels[0]
                     id_to_ava_labels[tid] = ava_labelnames[label_id+1]
+                flag = True
         save_yolopreds_tovideo(yolo_preds, id_to_ava_labels, coco_color_map, outputvideo, config.show)
     print("total cost: {:.3f} s, video length: {} s".format(time.time()-a, cap.idx / 25))
     
@@ -201,7 +244,7 @@ def main(config):
     
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, default="/home/wufan/images/video/vad.mp4", help='test imgs folder or video or camera')
+    parser.add_argument('--input', type=str, default="input.mp4", help='test imgs folder or video or camera')
     parser.add_argument('--output', type=str, default="output.mp4", help='folder to save result imgs, can not use input folder')
     # object detect config
     parser.add_argument('--imsize', type=int, default=640, help='inference size (pixels)')
@@ -213,10 +256,15 @@ if __name__=="__main__":
     config = parser.parse_args()
 
     # pre requist 
-    if not os.path.isfile("deep_sort/deep_sort/deep/checkpoint/ckpt.t7"):
-        os.makedirs("deep_sort/deep_sort/deep/checkpoint/",exist_ok=True)
-        if not os.path.isfile("deep_sort/deep_sort/deep/checkpoint/ckpt.t7"):
+    if not os.path.isfile("models/ckpt.t7"):
+        os.makedirs("models",exist_ok=True)
+        if not os.path.isfile("models/ckpt.t7"):
             raise Exception("ckpt.t7 file is missing!")
+    if not os.path.isfile("models/yolo_model.pt"):
+        os.makedirs("models",exist_ok=True)
+        if not os.path.isfile("models/yolo_model.pt"):
+            raise Exception("yolo_model.pt file is missing!")
+    os.makedirs("tmp",exist_ok=True)
         
     if config.input.isdigit():
         print("using local camera.")
