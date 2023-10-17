@@ -8,7 +8,6 @@ def save_video(frame_list:list,dst:str):
 
         # Get the height and width of the frames from the first frame
         height, width, _ = frame_list[0].shape
-        print(height, width)
         # Define the codec and create a VideoWriter object
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(dst, fourcc, 25.0, (width, height))
