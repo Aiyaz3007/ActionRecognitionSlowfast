@@ -9,9 +9,13 @@ chatid = "-4067642204"
 
 
 def send_image(file_name):
+    
     path = os.path.join('tmp',file_name)
-    fil = {'photo':open(path,'rb')}
-    if os.path.exists(path):
-        resp = requests.post("https://api.telegram.org/bot{0}/sendPhoto?chat_id={1}".format(TOKEN_KEY,chatid),files=fil)
-    return resp.status_code
+    if os.path.isfile(path):
+        fil = {'photo':open(path,'rb')}
+        if os.path.exists(path):
+            resp = requests.post("https://api.telegram.org/bot{0}/sendPhoto?chat_id={1}".format(TOKEN_KEY,chatid),files=fil)
+        return resp.status_code
+    else:
+        return 400
 
