@@ -6,3 +6,4 @@ tmp_df
 tmp
 selfutils/__pycache__/
 models
+test.py

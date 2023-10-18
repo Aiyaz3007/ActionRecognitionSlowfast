@@ -1,2 +1,2 @@
-from .utils import save_video
+from .utils import save_video,MyVideoCapture
 from .telegram_api import send_image
